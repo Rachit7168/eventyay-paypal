@@ -1,7 +1,6 @@
 {% load i18n %}
 {% if switched_on_but_unusable %}
     <div class="alert alert-danger">
-        <span class="fa fa-exclamation-triangle" aria-hidden="true"></span>
         {% blocktrans trimmed %}
             PayPal was switched on for this event, but it stays hidden from your customers because the connection
             to PayPal is incomplete. Finish the steps below to start accepting payments.
@@ -32,10 +31,12 @@
                     Disconnecting this account also switches PayPal off for this event.
                 {% endblocktrans %}
             </p>
-            <a href="{{ disconnect_url }}" class="btn btn-danger">
-                <span class="fa fa-unlink" aria-hidden="true"></span>
-                {% trans "Disconnect from PayPal" %}
-            </a>
+            <p>
+                <a href="{{ disconnect_url }}" class="btn btn-danger">
+                    <span class="fa fa-unlink" aria-hidden="true"></span>
+                    {% trans "Disconnect from PayPal" %}
+                </a>
+            </p>
         </div>
     </div>
 {% elif connect_state == "pending" %}
