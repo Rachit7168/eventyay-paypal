@@ -1,12 +1,19 @@
 from types import SimpleNamespace
 
 from eventyay_paypal.utils import (
+    CONNECT_STATE_CONNECTED,
+    CONNECT_STATE_PENDING,
+    CONNECT_STATE_UNAVAILABLE,
     build_paypal_auth_assertion,
     canonical_paypal_endpoint,
     is_paypal_sandbox,
     paypal_approval_href,
+    paypal_can_return_to,
     paypal_captures,
+    paypal_connect_state,
     paypal_error_reason,
+    paypal_is_configured,
+    paypal_merchant_can_receive_payments,
     paypal_payee_block,
     paypal_payment_matches_capture,
     resolve_paypal_api_base,
@@ -50,6 +57,56 @@ def test_uses_paypal_connect_prefers_platform_credentials():
     assert not uses_paypal_connect(settings)
 
 
+def test_paypal_connect_state_tracks_onboarding_progress():
+    settings = SimpleNamespace(connect_client_id="", connect_secret_key="", connect_user_id="")
+    assert paypal_connect_state(settings) == CONNECT_STATE_UNAVAILABLE
+
+    settings.connect_client_id = "client"
+    settings.connect_secret_key = "secret"
+    assert paypal_connect_state(settings) == CONNECT_STATE_PENDING
+
+    settings.connect_user_id = "MERCHANT1"
+    assert paypal_connect_state(settings) == CONNECT_STATE_CONNECTED
+
+
+def test_paypal_can_return_to_only_accepts_public_https_urls():
+    assert paypal_can_return_to("https://tickets.example.org/_paypal/oauth_return/")
+    assert not paypal_can_return_to("http://tickets.example.org/_paypal/oauth_return/")
+    assert not paypal_can_return_to("https://localhost:8000/_paypal/oauth_return/")
+    assert not paypal_can_return_to("https://127.0.0.1:8000/_paypal/oauth_return/")
+    assert not paypal_can_return_to("https://eventyay.local/_paypal/oauth_return/")
+    assert not paypal_can_return_to("https:///_paypal/oauth_return/")
+    assert not paypal_can_return_to("")
+
+
+def test_paypal_merchant_can_receive_payments_requires_both_paypal_flags():
+    assert paypal_merchant_can_receive_payments({"payments_receivable": True, "primary_email_confirmed": True})
+    assert not paypal_merchant_can_receive_payments({"payments_receivable": False, "primary_email_confirmed": True})
+    assert not paypal_merchant_can_receive_payments({"payments_receivable": True, "primary_email_confirmed": False})
+    # PayPal does not always report both flags, and a sparse answer must not block.
+    assert paypal_merchant_can_receive_payments({})
+
+
+def test_paypal_is_configured_requires_a_finished_connection_or_own_credentials():
+    connected = SimpleNamespace(connect_client_id="client", connect_secret_key="secret", connect_user_id="MERCHANT1")
+    assert paypal_is_configured(connected)
+
+    pending = SimpleNamespace(connect_client_id="client", connect_secret_key="secret", connect_user_id="")
+    assert not paypal_is_configured(pending)
+
+    own_credentials = SimpleNamespace(
+        connect_client_id="",
+        connect_secret_key="",
+        connect_user_id="",
+        client_id="client",
+        secret="secret",
+    )
+    assert paypal_is_configured(own_credentials)
+
+    own_credentials.secret = ""
+    assert not paypal_is_configured(own_credentials)
+
+
 def test_build_paypal_auth_assertion_is_unsigned_jwt():
     token = build_paypal_auth_assertion("client-id", "MERCHANT1")
     header, payload, signature = token.split(".")
@@ -68,8 +125,11 @@ class DummyResponse:
         return self._payload
 
 
-def test_paypal_error_reason_reads_api_message():
+def test_paypal_error_reason_reads_api_message_with_details():
     response = DummyResponse({"message": "INVALID_REQUEST", "details": [{"description": "Amount mismatch"}]})
+    assert paypal_error_reason(response) == "INVALID_REQUEST (Amount mismatch)"
+
+    response = DummyResponse({"message": "INVALID_REQUEST"})
     assert paypal_error_reason(response) == "INVALID_REQUEST"
 
 

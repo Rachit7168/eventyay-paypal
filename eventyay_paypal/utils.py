@@ -1,8 +1,11 @@
 import base64
 import json
+import urllib.parse
 
 SANDBOX_API_BASE = "https://api-m.sandbox.paypal.com"
 LIVE_API_BASE = "https://api-m.paypal.com"
+
+LOCAL_HOSTNAMES = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
 def safe_get(data, keys, default=None):
@@ -53,6 +56,58 @@ def canonical_paypal_endpoint(endpoint: str | None) -> str:
 
 def uses_paypal_connect(settings) -> bool:
     return bool(settings.connect_client_id and settings.connect_secret_key)
+
+
+CONNECT_STATE_UNAVAILABLE = "unavailable"
+CONNECT_STATE_PENDING = "pending"
+CONNECT_STATE_CONNECTED = "connected"
+
+
+def paypal_connect_state(settings) -> str:
+    """Describe how far the event is through PayPal Connect onboarding.
+
+    ``unavailable`` means the platform has no Connect credentials, so the event
+    has to fall back to its own REST credentials.
+    """
+    if not uses_paypal_connect(settings):
+        return CONNECT_STATE_UNAVAILABLE
+    return CONNECT_STATE_CONNECTED if settings.connect_user_id else CONNECT_STATE_PENDING
+
+
+def paypal_can_return_to(url: str) -> bool:
+    """Whether PayPal will send a seller back to this URL after onboarding.
+
+    PayPal loads the return URL in the seller's browser and only accepts public
+    HTTPS addresses. For anything else it drops the URL and ends the flow on the
+    PayPal dashboard instead, so the onboarding result never reaches us.
+    """
+    parsed = urllib.parse.urlparse(url or "")
+    if parsed.scheme != "https":
+        return False
+    hostname = parsed.hostname or ""
+    if not hostname or hostname in LOCAL_HOSTNAMES:
+        return False
+    return not hostname.endswith((".localhost", ".local"))
+
+
+def paypal_merchant_can_receive_payments(merchant_info: dict) -> bool:
+    """Whether PayPal reports an onboarded account as able to process payments.
+
+    PayPal treats a seller as onboarded only once payments are receivable and the
+    primary email address is confirmed. Fields that PayPal did not send are taken
+    as fulfilled, so a sparse response does not block the connection.
+    """
+    return bool(merchant_info.get("payments_receivable", True) and merchant_info.get("primary_email_confirmed", True))
+
+
+def paypal_is_configured(settings) -> bool:
+    """Whether PayPal has everything it needs to process a payment."""
+    state = paypal_connect_state(settings)
+    if state == CONNECT_STATE_CONNECTED:
+        return True
+    if state == CONNECT_STATE_PENDING:
+        return False
+    return bool(settings.client_id and settings.secret)
 
 
 COMPLETED_CAPTURE_STATUSES = frozenset({"COMPLETED", "PARTIALLY_REFUNDED"})
@@ -115,15 +170,15 @@ def paypal_error_reason(response, fallback: str = "") -> str:
         for part in [detail.get("description") or detail.get("issue") or ""]
         if part
     ]
-    return (
-        body.get("message")
-        or body.get("error_description")
-        or body.get("error")
-        or "; ".join(detail_parts)
-        or fallback
-        or getattr(response, "reason", "")
-        or "Unknown PayPal error"
-    )
+    message = body.get("message") or body.get("error_description") or body.get("error")
+
+    if detail_parts:
+        details_str = "; ".join(detail_parts)
+        if message:
+            return f"{message} ({details_str})"
+        return details_str
+
+    return message or fallback or getattr(response, "reason", "") or "Unknown PayPal error"
 
 
 def build_paypal_auth_assertion(client_id: str, merchant_id: str | None) -> str:

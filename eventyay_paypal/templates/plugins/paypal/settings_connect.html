@@ -1,0 +1,144 @@
+{% load i18n %}
+{% if switched_on_but_unusable %}
+    <div class="alert alert-danger">
+        {% blocktrans trimmed %}
+            PayPal was switched on for this event, but it stays hidden from your customers because the connection
+            to PayPal is incomplete. Finish the steps below to start accepting payments.
+        {% endblocktrans %}
+    </div>
+{% endif %}
+{% if connect_state == "connected" %}
+    <div class="panel panel-success">
+        <div class="panel-heading">
+            <h3 class="panel-title">
+                <span class="fa fa-check-circle" aria-hidden="true"></span>
+                {% trans "PayPal account connected" %}
+            </h3>
+        </div>
+        <div class="panel-body">
+            <p>
+                {% blocktrans trimmed with account=account_name %}
+                    Payments are paid out to <strong>{{ account }}</strong>.
+                {% endblocktrans %}
+                {% if sandbox %}
+                    <span class="label label-warning">{% trans "Sandbox" %}</span>
+                {% else %}
+                    <span class="label label-success">{% trans "Live" %}</span>
+                {% endif %}
+            </p>
+            <p>
+                {% blocktrans trimmed %}
+                    Disconnecting this account also switches PayPal off for this event.
+                {% endblocktrans %}
+            </p>
+            <p>
+                <a href="{{ disconnect_url }}" class="btn btn-danger">
+                    <span class="fa fa-unlink" aria-hidden="true"></span>
+                    {% trans "Disconnect from PayPal" %}
+                </a>
+            </p>
+        </div>
+    </div>
+{% elif connect_state == "pending" %}
+    <div class="panel panel-primary">
+        <div class="panel-heading">
+            <h3 class="panel-title">
+                <span class="fa fa-paypal" aria-hidden="true"></span>
+                {% trans "Step 1: Connect your PayPal account" %}
+            </h3>
+        </div>
+        <div class="panel-body">
+            <p>
+                {% blocktrans trimmed %}
+                    To accept payments via PayPal, you need a PayPal business account. The button below lets you
+                    either create a new account or link an existing one to Eventyay.
+                {% endblocktrans %}
+            </p>
+            <p>
+                <a href="{{ connect_url }}" class="btn btn-primary btn-lg">
+                    <span class="fa fa-lock" aria-hidden="true"></span>
+                    {% trans "Connect with PayPal" %}
+                </a>
+            </p>
+            {% if not return_url_is_reachable %}
+                <div class="alert alert-warning">
+                    {% blocktrans trimmed %}
+                        PayPal only sends sellers back to public HTTPS addresses. This installation uses the address
+                        below, so PayPal will end the flow on its own dashboard instead of returning you here. Complete
+                        the steps at PayPal, then use "Check connection status" to finish the setup.
+                    {% endblocktrans %}
+                    <br>
+                    <code>{{ return_url }}</code>
+                </div>
+            {% endif %}
+            {% if onboarding_started %}
+                <p>
+                    <button type="submit" formaction="{{ status_url }}" class="btn btn-default">
+                        <span class="fa fa-refresh" aria-hidden="true"></span>
+                        {% trans "Check connection status" %}
+                    </button>
+                </p>
+                <p class="help-block">
+                    {% blocktrans trimmed %}
+                        Use this if you already finished the steps at PayPal but were not sent back to Eventyay.
+                    {% endblocktrans %}
+                </p>
+            {% endif %}
+            <p class="help-block">
+                {% blocktrans trimmed %}
+                    The remaining PayPal settings, such as fees, availability and country restrictions, appear here
+                    once your account is linked. Until then, PayPal cannot be switched on.
+                {% endblocktrans %}
+            </p>
+        </div>
+    </div>
+{% else %}
+    <div class="panel panel-default">
+        <div class="panel-heading">
+            <h3 class="panel-title">
+                <span class="fa fa-paypal" aria-hidden="true"></span>
+                {% trans "Connect with PayPal is unavailable" %}
+            </h3>
+        </div>
+        <div class="panel-body">
+            <p>
+                {% blocktrans trimmed %}
+                    This installation has no PayPal Connect credentials, so your PayPal account cannot be linked
+                    automatically. Ask your administrator to set up PayPal Connect, or enter the REST credentials
+                    of your own PayPal app above.
+                {% endblocktrans %}
+            </p>
+            <p>
+                {% blocktrans trimmed %}
+                    When using your own credentials, create a PayPal webhook for the following endpoint and enter
+                    its webhook ID above:
+                {% endblocktrans %}
+            </p>
+            <p><code>{{ webhook_url }}</code></p>
+            <p>
+                <a href="{{ docs_url }}" target="_blank" rel="noopener">
+                    {% trans "How to obtain PayPal REST credentials" %}
+                </a>
+            </p>
+        </div>
+    </div>
+{% endif %}
+{% if not currency_supported %}
+    <div class="alert alert-warning">
+        {% blocktrans trimmed with currency=currency %}
+            PayPal does not process payments in your event's currency ({{ currency }}).
+        {% endblocktrans %}
+        <a href="https://developer.paypal.com/docs/api/reference/currency-codes/" target="_blank" rel="noopener">
+            {% trans "Please check this PayPal page for a complete list of supported currencies." %}
+        </a>
+    </div>
+{% endif %}
+{% if currency_local_only %}
+    <div class="alert alert-warning">
+        {% blocktrans trimmed %}
+            Your event's currency is supported by PayPal as a payment and balance currency for in-country accounts
+            only. This means that the receiving as well as the sending PayPal account must have been created in the
+            same country and use the same currency. Out of country accounts will not be able to send any payments.
+        {% endblocktrans %}
+    </div>
+{% endif %}

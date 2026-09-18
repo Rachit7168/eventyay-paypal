@@ -48,6 +48,9 @@ class PaypalRequestHandler:
         self.merchant_integrations_url = urllib.parse.urljoin(
             self.endpoint, "v1/customer/partners/{partner_payer_id}/merchant-integrations/{merchant_id}"
         )
+        self.merchant_integrations_search_url = urllib.parse.urljoin(
+            self.endpoint, "v1/customer/partners/{partner_payer_id}/merchant-integrations"
+        )
 
         self.paypal_request_id = self.get_paypal_request_id()
 
@@ -293,5 +296,27 @@ class PaypalRequestHandler:
                 partner_payer_id=partner_payer_id,
                 merchant_id=merchant_id,
             ),
+            method=HTTPMethod.GET,
+        )
+
+    def find_merchant_integration(self, partner_payer_id: str, tracking_id: str) -> dict:
+        """Look up an onboarding by the tracking ID sent with the partner referral.
+
+        This is how a connection can be completed when PayPal never redirected the
+        seller back to us, for example because the installation is not reachable
+        under a public HTTPS address. PayPal answers with ``404`` while the seller
+        has not finished onboarding.
+        """
+        if not partner_payer_id or not tracking_id:
+            return {
+                "errors": {
+                    "type": "MissingParams",
+                    "reason": "partner_payer_id and tracking_id are required",
+                    "exception": None,
+                }
+            }
+        query = urllib.parse.urlencode({"tracking_id": tracking_id})
+        return self.authorized_request(
+            url=f"{self.merchant_integrations_search_url.format(partner_payer_id=partner_payer_id)}?{query}",
             method=HTTPMethod.GET,
         )
