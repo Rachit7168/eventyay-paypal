@@ -13,6 +13,7 @@ from eventyay_paypal.utils import (
     paypal_connect_state,
     paypal_error_reason,
     paypal_is_configured,
+    paypal_merchant_can_receive_payments,
     paypal_payee_block,
     paypal_payment_matches_capture,
     resolve_paypal_api_base,
@@ -74,7 +75,16 @@ def test_paypal_can_return_to_only_accepts_public_https_urls():
     assert not paypal_can_return_to("https://localhost:8000/_paypal/oauth_return/")
     assert not paypal_can_return_to("https://127.0.0.1:8000/_paypal/oauth_return/")
     assert not paypal_can_return_to("https://eventyay.local/_paypal/oauth_return/")
+    assert not paypal_can_return_to("https:///_paypal/oauth_return/")
     assert not paypal_can_return_to("")
+
+
+def test_paypal_merchant_can_receive_payments_requires_both_paypal_flags():
+    assert paypal_merchant_can_receive_payments({"payments_receivable": True, "primary_email_confirmed": True})
+    assert not paypal_merchant_can_receive_payments({"payments_receivable": False, "primary_email_confirmed": True})
+    assert not paypal_merchant_can_receive_payments({"payments_receivable": True, "primary_email_confirmed": False})
+    # PayPal does not always report both flags, and a sparse answer must not block.
+    assert paypal_merchant_can_receive_payments({})
 
 
 def test_paypal_is_configured_requires_a_finished_connection_or_own_credentials():

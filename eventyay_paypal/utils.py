@@ -85,7 +85,19 @@ def paypal_can_return_to(url: str) -> bool:
     if parsed.scheme != "https":
         return False
     hostname = parsed.hostname or ""
-    return hostname not in LOCAL_HOSTNAMES and not hostname.endswith((".localhost", ".local"))
+    if not hostname or hostname in LOCAL_HOSTNAMES:
+        return False
+    return not hostname.endswith((".localhost", ".local"))
+
+
+def paypal_merchant_can_receive_payments(merchant_info: dict) -> bool:
+    """Whether PayPal reports an onboarded account as able to process payments.
+
+    PayPal treats a seller as onboarded only once payments are receivable and the
+    primary email address is confirmed. Fields that PayPal did not send are taken
+    as fulfilled, so a sparse response does not block the connection.
+    """
+    return bool(merchant_info.get("payments_receivable", True) and merchant_info.get("primary_email_confirmed", True))
 
 
 def paypal_is_configured(settings) -> bool:

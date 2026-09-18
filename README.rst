@@ -147,6 +147,8 @@ PayPal Connect allows an organiser to connect an event to a PayPal account throu
 
 When PayPal Connect is configured globally, the event payment settings show a **Connect with PayPal** OAuth button. Organisers can create a PayPal account or link an existing one without pasting API keys. After a successful connection, Eventyay stores the PayPal merchant reference for the event and enables PayPal payments.
 
+PayPal is only switched on when PayPal reports the account as able to receive payments, that is ``payments_receivable`` and ``primary_email_confirmed`` are both true. When PayPal still lists open items, such as an unconfirmed email address, the account is linked but PayPal stays off, and the settings page names what has to be done at PayPal first.
+
 Until the account is linked, the connect panel is the only thing shown on the PayPal settings page. The other options, such as fees, availability and country restrictions, appear after the connection is complete, so PayPal cannot be switched on while it is unusable.
 
 PayPal sends the seller back to Eventyay only if the installation is reachable under a public HTTPS address, because it loads that return URL in the seller's browser. On a development installation that runs on ``http://localhost:8000`` PayPal ends the flow on its own dashboard instead, and the connection is never reported back. The settings page states this and offers a **Check connection status** button, which asks PayPal about the onboarding using the tracking ID sent with the partner referral and links the account if PayPal reports it as onboarded. That lookup needs ``payment_paypal_connect_partner_payer_id`` to be set in the global settings.
