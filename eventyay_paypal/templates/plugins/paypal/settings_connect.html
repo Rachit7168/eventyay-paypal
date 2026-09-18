@@ -60,6 +60,30 @@
                     {% trans "Connect with PayPal" %}
                 </a>
             </p>
+            {% if not return_url_is_reachable %}
+                <div class="alert alert-warning">
+                    {% blocktrans trimmed %}
+                        PayPal only sends sellers back to public HTTPS addresses. This installation uses the address
+                        below, so PayPal will end the flow on its own dashboard instead of returning you here. Complete
+                        the steps at PayPal, then use "Check connection status" to finish the setup.
+                    {% endblocktrans %}
+                    <br>
+                    <code>{{ return_url }}</code>
+                </div>
+            {% endif %}
+            {% if onboarding_started %}
+                <p>
+                    <button type="submit" formaction="{{ status_url }}" class="btn btn-default">
+                        <span class="fa fa-refresh" aria-hidden="true"></span>
+                        {% trans "Check connection status" %}
+                    </button>
+                </p>
+                <p class="help-block">
+                    {% blocktrans trimmed %}
+                        Use this if you already finished the steps at PayPal but were not sent back to Eventyay.
+                    {% endblocktrans %}
+                </p>
+            {% endif %}
             <p class="help-block">
                 {% blocktrans trimmed %}
                     The remaining PayPal settings, such as fees, availability and country restrictions, appear here

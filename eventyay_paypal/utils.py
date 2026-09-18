@@ -1,8 +1,11 @@
 import base64
 import json
+import urllib.parse
 
 SANDBOX_API_BASE = "https://api-m.sandbox.paypal.com"
 LIVE_API_BASE = "https://api-m.paypal.com"
+
+LOCAL_HOSTNAMES = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
 def safe_get(data, keys, default=None):
@@ -69,6 +72,20 @@ def paypal_connect_state(settings) -> str:
     if not uses_paypal_connect(settings):
         return CONNECT_STATE_UNAVAILABLE
     return CONNECT_STATE_CONNECTED if settings.connect_user_id else CONNECT_STATE_PENDING
+
+
+def paypal_can_return_to(url: str) -> bool:
+    """Whether PayPal will send a seller back to this URL after onboarding.
+
+    PayPal loads the return URL in the seller's browser and only accepts public
+    HTTPS addresses. For anything else it drops the URL and ends the flow on the
+    PayPal dashboard instead, so the onboarding result never reaches us.
+    """
+    parsed = urllib.parse.urlparse(url or "")
+    if parsed.scheme != "https":
+        return False
+    hostname = parsed.hostname or ""
+    return hostname not in LOCAL_HOSTNAMES and not hostname.endswith((".localhost", ".local"))
 
 
 def paypal_is_configured(settings) -> bool:
@@ -141,15 +158,15 @@ def paypal_error_reason(response, fallback: str = "") -> str:
         for part in [detail.get("description") or detail.get("issue") or ""]
         if part
     ]
-    return (
-        body.get("message")
-        or body.get("error_description")
-        or body.get("error")
-        or "; ".join(detail_parts)
-        or fallback
-        or getattr(response, "reason", "")
-        or "Unknown PayPal error"
-    )
+    message = body.get("message") or body.get("error_description") or body.get("error")
+
+    if detail_parts:
+        details_str = "; ".join(detail_parts)
+        if message:
+            return f"{message} ({details_str})"
+        return details_str
+
+    return message or fallback or getattr(response, "reason", "") or "Unknown PayPal error"
 
 
 def build_paypal_auth_assertion(client_id: str, merchant_id: str | None) -> str:

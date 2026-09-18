@@ -8,6 +8,7 @@ from eventyay_paypal.utils import (
     canonical_paypal_endpoint,
     is_paypal_sandbox,
     paypal_approval_href,
+    paypal_can_return_to,
     paypal_captures,
     paypal_connect_state,
     paypal_error_reason,
@@ -67,6 +68,15 @@ def test_paypal_connect_state_tracks_onboarding_progress():
     assert paypal_connect_state(settings) == CONNECT_STATE_CONNECTED
 
 
+def test_paypal_can_return_to_only_accepts_public_https_urls():
+    assert paypal_can_return_to("https://tickets.example.org/_paypal/oauth_return/")
+    assert not paypal_can_return_to("http://tickets.example.org/_paypal/oauth_return/")
+    assert not paypal_can_return_to("https://localhost:8000/_paypal/oauth_return/")
+    assert not paypal_can_return_to("https://127.0.0.1:8000/_paypal/oauth_return/")
+    assert not paypal_can_return_to("https://eventyay.local/_paypal/oauth_return/")
+    assert not paypal_can_return_to("")
+
+
 def test_paypal_is_configured_requires_a_finished_connection_or_own_credentials():
     connected = SimpleNamespace(connect_client_id="client", connect_secret_key="secret", connect_user_id="MERCHANT1")
     assert paypal_is_configured(connected)
@@ -105,8 +115,11 @@ class DummyResponse:
         return self._payload
 
 
-def test_paypal_error_reason_reads_api_message():
+def test_paypal_error_reason_reads_api_message_with_details():
     response = DummyResponse({"message": "INVALID_REQUEST", "details": [{"description": "Amount mismatch"}]})
+    assert paypal_error_reason(response) == "INVALID_REQUEST (Amount mismatch)"
+
+    response = DummyResponse({"message": "INVALID_REQUEST"})
     assert paypal_error_reason(response) == "INVALID_REQUEST"
 
 

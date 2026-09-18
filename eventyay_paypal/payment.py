@@ -33,6 +33,7 @@ from .utils import (
     canonical_paypal_endpoint,
     is_paypal_sandbox,
     paypal_approval_href,
+    paypal_can_return_to,
     paypal_captures,
     paypal_connect_state,
     paypal_is_configured,
@@ -200,8 +201,12 @@ class Paypal(BasePaymentProvider):
 
     def get_connect_url(self, request):
         """Create a PayPal Partner Referrals action URL for OAuth onboarding."""
+        tracking_id = get_random_string(32)
         request.session["payment_paypal_oauth_event"] = request.event.pk
-        request.session["payment_paypal_tracking_id"] = get_random_string(32)
+        request.session["payment_paypal_tracking_id"] = tracking_id
+        # Also stored on the event so that the onboarding can be completed later on
+        # if PayPal never redirects the seller back to us.
+        self.settings.connect_tracking_id = tracking_id
 
         response_data = self.paypal_request_handler.create_partner_referrals(
             data={
@@ -224,9 +229,12 @@ class Paypal(BasePaymentProvider):
                     }
                 ],
                 "products": ["EXPRESS_CHECKOUT"],
-                "partner_config_override": {"return_url": build_global_uri("plugins:eventyay_paypal:oauth.return")},
+                "partner_config_override": {
+                    "return_url": build_global_uri("plugins:eventyay_paypal:oauth.return"),
+                    "return_url_description": str(_("Return to Eventyay to finish setting up PayPal.")),
+                },
                 "legal_consents": [{"type": "SHARE_DATA_CONSENT", "granted": True}],
-                "tracking_id": request.session["payment_paypal_tracking_id"],
+                "tracking_id": tracking_id,
             },
         )
 
@@ -253,24 +261,18 @@ class Paypal(BasePaymentProvider):
             sandbox = is_paypal_sandbox(self.settings.connect_endpoint)
         else:
             sandbox = is_paypal_sandbox(self.settings.get("endpoint"))
+        url_kwargs = {"organizer": self.event.organizer.slug, "event": self.event.slug}
+        return_url = build_global_uri("plugins:eventyay_paypal:oauth.return")
         template = get_template("plugins/paypal/settings_connect.html")
         return template.render(
             {
                 "connect_state": connect_state,
-                "connect_url": reverse(
-                    "plugins:eventyay_paypal:oauth.start",
-                    kwargs={
-                        "organizer": self.event.organizer.slug,
-                        "event": self.event.slug,
-                    },
-                ),
-                "disconnect_url": reverse(
-                    "plugins:eventyay_paypal:oauth.disconnect",
-                    kwargs={
-                        "organizer": self.event.organizer.slug,
-                        "event": self.event.slug,
-                    },
-                ),
+                "connect_url": reverse("plugins:eventyay_paypal:oauth.start", kwargs=url_kwargs),
+                "disconnect_url": reverse("plugins:eventyay_paypal:oauth.disconnect", kwargs=url_kwargs),
+                "status_url": reverse("plugins:eventyay_paypal:oauth.status", kwargs=url_kwargs),
+                "onboarding_started": bool(self.settings.connect_tracking_id),
+                "return_url": return_url,
+                "return_url_is_reachable": paypal_can_return_to(return_url),
                 "account_name": self.settings.connect_user_name or self.settings.connect_user_id,
                 "sandbox": sandbox,
                 "webhook_url": build_global_uri("plugins:eventyay_paypal:webhook"),

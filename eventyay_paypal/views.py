@@ -62,6 +62,15 @@ def redirect_view(request, *args, **kwargs):
     return r
 
 
+def store_paypal_connection(event, merchant_id: str, display_name: str | None = None):
+    """Link a PayPal merchant to an event and finish the onboarding."""
+    event.settings.payment_paypal_connect_user_id = merchant_id
+    event.settings.payment_paypal_merchant_id = merchant_id
+    event.settings.payment_paypal_connect_user_name = display_name or merchant_id
+    event.settings.payment_paypal__enabled = True
+    del event.settings.payment_paypal_connect_tracking_id
+
+
 @event_permission_required("can_change_event_settings")
 @require_GET
 def oauth_start(request, **kwargs):
@@ -128,9 +137,6 @@ def oauth_return(request, *args, **kwargs):
 
     event = get_object_or_404(Event, pk=request.session.get("payment_paypal_oauth_event"))
     merchant_id = request.GET.get("merchantIdInPayPal")
-    event.settings.payment_paypal_connect_user_id = merchant_id
-    event.settings.payment_paypal_merchant_id = merchant_id
-    event.settings.payment_paypal__enabled = True
 
     # Attempt to resolve a human-readable display name (email) via the
     # Partner Merchant Integrations API.  Falls back to merchant_id if the
@@ -151,7 +157,7 @@ def oauth_return(request, *args, **kwargs):
                 "Unable to fetch merchant display name from PayPal: %s",
                 merchant_info["errors"].get("reason", merchant_info["errors"]),
             )
-    event.settings.payment_paypal_connect_user_name = display_name
+    store_paypal_connection(event, merchant_id, display_name)
 
     for key in required_session_params:
         request.session.pop(key, None)
@@ -161,6 +167,79 @@ def oauth_return(request, *args, **kwargs):
         _("Your PayPal account is now connected to Eventyay. You can change the settings in detail below."),
     )
 
+    return redirect_to_paypal_settings(event)
+
+
+@event_permission_required("can_change_event_settings")
+@require_POST
+def oauth_status(request, **kwargs):
+    """Finish an onboarding that PayPal never redirected the seller back from."""
+    event = request.event
+    prov = Paypal(event)
+    if not prov.connect_configured():
+        messages.error(
+            request,
+            _("PayPal Connect is not yet configured. Please ask your administrator to set up the credentials."),
+        )
+        return redirect_to_paypal_settings(event)
+
+    if event.settings.payment_paypal_connect_user_id:
+        messages.info(request, _("Your PayPal account is already connected."))
+        return redirect_to_paypal_settings(event)
+
+    tracking_id = event.settings.get("payment_paypal_connect_tracking_id")
+    if not tracking_id:
+        messages.error(request, _("Please start the connection with PayPal first."))
+        return redirect_to_paypal_settings(event)
+
+    partner_payer_id = event.settings.get("payment_paypal_connect_partner_payer_id")
+    if not partner_payer_id:
+        messages.error(
+            request,
+            _(
+                "Eventyay cannot ask PayPal about your onboarding because the platform payer ID is missing. "
+                "Please ask your administrator to add it to the global PayPal Connect settings."
+            ),
+        )
+        return redirect_to_paypal_settings(event)
+
+    integration = prov.paypal_request_handler.find_merchant_integration(
+        partner_payer_id=partner_payer_id,
+        tracking_id=tracking_id,
+    )
+    if errors := integration.get("errors"):
+        logger.warning(
+            "PayPal did not confirm the onboarding for event %s: %s",
+            event.pk,
+            errors.get("reason", errors),
+        )
+        messages.warning(
+            request,
+            _(
+                "PayPal has not reported your account as onboarded yet. Please finish all steps at PayPal, "
+                "including confirming your email address, and check again."
+            ),
+        )
+        return redirect_to_paypal_settings(event)
+
+    info = integration.get("response") or {}
+    merchant_id = info.get("merchant_id")
+    if not merchant_id or (info.get("tracking_id") and info["tracking_id"] != tracking_id):
+        logger.warning("PayPal onboarding lookup for event %s returned %s", event.pk, info)
+        messages.warning(request, _("PayPal did not return a merchant ID for this onboarding yet."))
+        return redirect_to_paypal_settings(event)
+
+    store_paypal_connection(event, merchant_id, info.get("primary_email") or merchant_id)
+    messages.success(request, _("Your PayPal account is now connected to Eventyay."))
+    if not info.get("payments_receivable", True):
+        messages.warning(
+            request,
+            _(
+                "PayPal cannot receive payments for this account yet. Please check the open items in your PayPal account."
+            ),
+        )
+    if not info.get("primary_email_confirmed", True):
+        messages.warning(request, _("Please confirm the email address of your PayPal account to receive payments."))
     return redirect_to_paypal_settings(event)
 
 
