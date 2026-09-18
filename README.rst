@@ -128,8 +128,9 @@ Using the plugin
 1. Open the Eventyay organiser interface.
 2. Open the event where PayPal payments should be enabled.
 3. Go to the payment provider settings.
-4. Enable the PayPal payment provider.
-5. Connect the event to PayPal or enter PayPal API credentials, depending on the configured setup.
+4. Connect the event to PayPal, or enter PayPal API credentials if PayPal Connect is not configured for the installation.
+5. Enable the PayPal payment provider. The remaining options are only shown once PayPal can be used, and PayPal is
+   reported as disabled as long as the connection is incomplete.
 6. Configure sandbox or live mode.
 7. Save the payment settings.
 8. Test the checkout flow with a test order before using the provider for a live event.
@@ -145,6 +146,8 @@ PayPal Connect
 PayPal Connect allows an organiser to connect an event to a PayPal account through the Eventyay payment settings.
 
 When PayPal Connect is configured globally, the event payment settings show a **Connect with PayPal** OAuth button. Organisers can create a PayPal account or link an existing one without pasting API keys. After a successful connection, Eventyay stores the PayPal merchant reference for the event and enables PayPal payments.
+
+Until the account is linked, the connect panel is the only thing shown on the PayPal settings page. The other options, such as fees, availability and country restrictions, appear after the connection is complete, so PayPal cannot be switched on while it is unusable.
 
 Global PayPal Connect settings include:
 

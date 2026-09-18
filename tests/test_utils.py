@@ -1,12 +1,17 @@
 from types import SimpleNamespace
 
 from eventyay_paypal.utils import (
+    CONNECT_STATE_CONNECTED,
+    CONNECT_STATE_PENDING,
+    CONNECT_STATE_UNAVAILABLE,
     build_paypal_auth_assertion,
     canonical_paypal_endpoint,
     is_paypal_sandbox,
     paypal_approval_href,
     paypal_captures,
+    paypal_connect_state,
     paypal_error_reason,
+    paypal_is_configured,
     paypal_payee_block,
     paypal_payment_matches_capture,
     resolve_paypal_api_base,
@@ -48,6 +53,38 @@ def test_uses_paypal_connect_prefers_platform_credentials():
     assert uses_paypal_connect(settings)
     settings.connect_secret_key = ""
     assert not uses_paypal_connect(settings)
+
+
+def test_paypal_connect_state_tracks_onboarding_progress():
+    settings = SimpleNamespace(connect_client_id="", connect_secret_key="", connect_user_id="")
+    assert paypal_connect_state(settings) == CONNECT_STATE_UNAVAILABLE
+
+    settings.connect_client_id = "client"
+    settings.connect_secret_key = "secret"
+    assert paypal_connect_state(settings) == CONNECT_STATE_PENDING
+
+    settings.connect_user_id = "MERCHANT1"
+    assert paypal_connect_state(settings) == CONNECT_STATE_CONNECTED
+
+
+def test_paypal_is_configured_requires_a_finished_connection_or_own_credentials():
+    connected = SimpleNamespace(connect_client_id="client", connect_secret_key="secret", connect_user_id="MERCHANT1")
+    assert paypal_is_configured(connected)
+
+    pending = SimpleNamespace(connect_client_id="client", connect_secret_key="secret", connect_user_id="")
+    assert not paypal_is_configured(pending)
+
+    own_credentials = SimpleNamespace(
+        connect_client_id="",
+        connect_secret_key="",
+        connect_user_id="",
+        client_id="client",
+        secret="secret",
+    )
+    assert paypal_is_configured(own_credentials)
+
+    own_credentials.secret = ""
+    assert not paypal_is_configured(own_credentials)
 
 
 def test_build_paypal_auth_assertion_is_unsigned_jwt():

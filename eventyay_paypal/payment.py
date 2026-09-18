@@ -28,10 +28,14 @@ from .models import ReferencedPayPalObject
 from .paypal_rest import PaypalRequestHandler
 from .utils import (
     COMPLETED_CAPTURE_STATUSES,
+    CONNECT_STATE_CONNECTED,
+    CONNECT_STATE_PENDING,
     canonical_paypal_endpoint,
     is_paypal_sandbox,
     paypal_approval_href,
     paypal_captures,
+    paypal_connect_state,
+    paypal_is_configured,
     paypal_payee_block,
     safe_get,
     uses_paypal_connect,
@@ -96,6 +100,12 @@ class Paypal(BasePaymentProvider):
     def connect_configured(self) -> bool:
         return uses_paypal_connect(self.settings)
 
+    @property
+    def is_enabled(self) -> bool:
+        # Do not report PayPal as enabled while it cannot process a payment, e.g. when
+        # onboarding was never finished or the platform credentials were removed again.
+        return super().is_enabled and paypal_is_configured(self.settings)
+
     def _connected_merchant_id(self) -> str | None:
         if self.connect_configured() and self.settings.connect_user_id:
             return self.settings.merchant_id or None
@@ -103,24 +113,23 @@ class Paypal(BasePaymentProvider):
 
     @property
     def settings_form_fields(self):
-        if self.connect_configured():
-            if self.settings.connect_user_id:
-                fields = [
-                    (
-                        "connect_user_name",
-                        forms.CharField(label=_("PayPal account"), disabled=True),
-                    ),
-                    (
-                        "connect_user_id",
-                        forms.CharField(label=_("PayPal merchant ID"), disabled=True),
-                    ),
-                    (
-                        "merchant_id",
-                        forms.CharField(label=_("PayPal payer ID"), disabled=True),
-                    ),
-                ]
-            else:
-                fields = []
+        connect_state = paypal_connect_state(self.settings)
+        if connect_state == CONNECT_STATE_PENDING:
+            # Hide every option until the PayPal account is linked, so that the connect
+            # panel rendered by settings_content_render is the only thing to act on.
+            return {}
+
+        if connect_state == CONNECT_STATE_CONNECTED:
+            fields = [
+                (
+                    "connect_user_name",
+                    forms.CharField(label=_("PayPal account"), disabled=True, required=False),
+                ),
+                (
+                    "connect_user_id",
+                    forms.CharField(label=_("PayPal merchant ID"), disabled=True, required=False),
+                ),
+            ]
         else:
             fields = [
                 (
@@ -152,6 +161,7 @@ class Paypal(BasePaymentProvider):
                             ("live", "Live"),
                             ("sandbox", "Sandbox"),
                         ),
+                        help_text=_("Use the sandbox to test the checkout without moving real money."),
                     ),
                 ),
                 (
@@ -161,6 +171,9 @@ class Paypal(BasePaymentProvider):
                         initial="test_webhook_id",
                         max_length=20,
                         min_length=10,
+                        help_text=_(
+                            "The ID of the webhook you created in your PayPal app for the endpoint shown below."
+                        ),
                     ),
                 ),
             ]
@@ -235,82 +248,42 @@ class Paypal(BasePaymentProvider):
         return None
 
     def settings_content_render(self, request):
-        settings_content = ""
-        connect_start_url = reverse(
-            "plugins:eventyay_paypal:oauth.start",
-            kwargs={
-                "organizer": self.event.organizer.slug,
-                "event": self.event.slug,
-            },
-        )
-        disconnect_url = reverse(
-            "plugins:eventyay_paypal:oauth.disconnect",
-            kwargs={
-                "organizer": self.event.organizer.slug,
-                "event": self.event.slug,
-            },
-        )
-        if self.connect_configured():
-            if not self.settings.connect_user_id:
-                settings_content = (
-                    "<p>{}</p><a href='{}' class='btn btn-primary btn-lg'><span class='fa fa-lock'></span> {}</a>"
-                ).format(
-                    _(
-                        "To accept payments via PayPal, you will need an account at PayPal. By clicking on the "
-                        "following button, you can either create a new PayPal account or connect Eventyay to an "
-                        "existing one."
-                    ),
-                    connect_start_url,
-                    _("Connect with PayPal"),
-                )
-            else:
-                account_name = self.settings.connect_user_name or self.settings.connect_user_id
-                settings_content = (
-                    "<div class='alert alert-success'>{}</div><a href='{}' class='btn btn-danger'>{}</a>"
-                ).format(
-                    _("Connected as {account}. Your PayPal account is linked to Eventyay.").format(
-                        account=account_name
-                    ),
-                    disconnect_url,
-                    _("Disconnect from PayPal"),
-                )
+        connect_state = paypal_connect_state(self.settings)
+        if connect_state == CONNECT_STATE_CONNECTED:
+            sandbox = is_paypal_sandbox(self.settings.connect_endpoint)
         else:
-            settings_content = (
-                "<div class='alert alert-warning'>{}</div><div class='alert alert-info'>{}<br /><code>{}</code></div>"
-            ).format(
-                _(
-                    "PayPal Connect is not yet configured. Please ask your administrator to set up "
-                    "the PayPal Connect credentials (Client ID and Secret Key) in the global settings "
-                    "before you can connect your PayPal account."
+            sandbox = is_paypal_sandbox(self.settings.get("endpoint"))
+        template = get_template("plugins/paypal/settings_connect.html")
+        return template.render(
+            {
+                "connect_state": connect_state,
+                "connect_url": reverse(
+                    "plugins:eventyay_paypal:oauth.start",
+                    kwargs={
+                        "organizer": self.event.organizer.slug,
+                        "event": self.event.slug,
+                    },
                 ),
-                _(
-                    "If you use direct PayPal REST credentials instead, configure a PayPal Webhook for "
-                    "the following endpoint and set the webhook ID below."
+                "disconnect_url": reverse(
+                    "plugins:eventyay_paypal:oauth.disconnect",
+                    kwargs={
+                        "organizer": self.event.organizer.slug,
+                        "event": self.event.slug,
+                    },
                 ),
-                build_global_uri("plugins:eventyay_paypal:webhook"),
-            )
-
-        if self.event.currency not in SUPPORTED_CURRENCIES:
-            settings_content += (
-                '<br><br><div class="alert alert-warning">{} '
-                '<a href="https://developer.paypal.com/docs/api/reference/currency-codes/">{}</a>'
-                "</div>"
-            ).format(
-                _("PayPal does not process payments in your event's currency."),
-                _("Please check this PayPal page for a complete list of supported currencies."),
-            )
-
-        if self.event.currency in LOCAL_ONLY_CURRENCIES:
-            settings_content += '<br><br><div class="alert alert-warning">{}</div>'.format(
-                _(
-                    "Your event's currency is supported by PayPal as a payment and balance currency for in-country "
-                    "accounts only. This means, that the receiving as well as the sending PayPal account must have been "
-                    "created in the same country and use the same currency. Out of country accounts will not be able to "
-                    "send any payments."
-                )
-            )
-
-        return settings_content
+                "account_name": self.settings.connect_user_name or self.settings.connect_user_id,
+                "sandbox": sandbox,
+                "webhook_url": build_global_uri("plugins:eventyay_paypal:webhook"),
+                "docs_url": "https://docs.eventyay.com/en/latest/user/payments/paypal.html",
+                "switched_on_but_unusable": (
+                    self.settings.get("_enabled", as_type=bool) and not paypal_is_configured(self.settings)
+                ),
+                "currency": self.event.currency,
+                "currency_supported": self.event.currency in SUPPORTED_CURRENCIES,
+                "currency_local_only": self.event.currency in LOCAL_ONLY_CURRENCIES,
+            },
+            request=request,
+        )
 
     def is_allowed(self, request: HttpRequest, total: Decimal = None) -> bool:
         return super().is_allowed(request, total) and self.event.currency in SUPPORTED_CURRENCIES

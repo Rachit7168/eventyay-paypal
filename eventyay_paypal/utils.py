@@ -55,6 +55,32 @@ def uses_paypal_connect(settings) -> bool:
     return bool(settings.connect_client_id and settings.connect_secret_key)
 
 
+CONNECT_STATE_UNAVAILABLE = "unavailable"
+CONNECT_STATE_PENDING = "pending"
+CONNECT_STATE_CONNECTED = "connected"
+
+
+def paypal_connect_state(settings) -> str:
+    """Describe how far the event is through PayPal Connect onboarding.
+
+    ``unavailable`` means the platform has no Connect credentials, so the event
+    has to fall back to its own REST credentials.
+    """
+    if not uses_paypal_connect(settings):
+        return CONNECT_STATE_UNAVAILABLE
+    return CONNECT_STATE_CONNECTED if settings.connect_user_id else CONNECT_STATE_PENDING
+
+
+def paypal_is_configured(settings) -> bool:
+    """Whether PayPal has everything it needs to process a payment."""
+    state = paypal_connect_state(settings)
+    if state == CONNECT_STATE_CONNECTED:
+        return True
+    if state == CONNECT_STATE_PENDING:
+        return False
+    return bool(settings.client_id and settings.secret)
+
+
 COMPLETED_CAPTURE_STATUSES = frozenset({"COMPLETED", "PARTIALLY_REFUNDED"})
 
 
